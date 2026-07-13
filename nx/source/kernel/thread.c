@@ -99,8 +99,13 @@ Result threadCreate(
 
     bool owns_stack_mem;
     if (stack_mem == NULL) {
-        // Allocate new memory for the stack, tls and reent.
-        stack_mem = __libnx_aligned_alloc(0x1000, stack_sz + tls_sz + reent_sz);
+        // Allocate new memory for the stack, tls and reent. The mapped region below is page-ROUNDED
+        // (aligned_stack_sz), so the allocation must be page-rounded too — otherwise svcMapMemory (and
+        // the matching svcUnmapMemory in threadClose) operate on up to ~0xFFF bytes PAST this allocation,
+        // into the adjacent heap chunk. That's harmless in a normal app (freelist slack), but corrupts a
+        // process whose heap is shared with a second, concurrently-mutated allocator (e.g. box64's guest
+        // glibc arena): the teardown reprotects live neighbouring memory on real HW.
+        stack_mem = __libnx_aligned_alloc(0x1000, (stack_sz + tls_sz + reent_sz + 0xFFF) &~ 0xFFF);
 
         owns_stack_mem = true;
     } else {
